@@ -29,7 +29,7 @@ TO DO:
 
 import numpy as np
 import sys
-
+import copy
 
 ### Information about the resources
 GOLD, FOOD, METAL, MANA, OIL, CRYSTAL, SUBDOLAK = range(7)
@@ -266,7 +266,7 @@ class GameState:
         self.const = 1 # Start with 1 construction yard.
         self.owned_mines = [] # Start with no owned mines.
         self.num_mines = 0 # Start with no owned mines. 
-        self.unowned_mines = map_mines # Populate the unowned_mines with the map.
+        self.unowned_mines = copy.deepcopy(map_mines) # Populate the unowned_mines with the map.
         self.available_moves = [] # Make an empty list which contains the valid moves.
         self.update_available_actions() # Update the available moves based on the initialized game state.
         self.moves_performed = [] # Make an empty list of what moves have been performed.

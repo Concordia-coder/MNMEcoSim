@@ -1,7 +1,7 @@
 """
 Author: Justin Goodrich
-Version: 0.1
-Date: 3-24-2024
+Version: 0.2
+Date: 3-26-2024
 
 This is mnm.py, a Python project that implements a basic model of the economy of StarCraft II arcade game Mines and Magic ( https://sc2arcade.com/map/1/223843/ )
 
@@ -29,24 +29,25 @@ TO DO:
 
 import numpy as np
 import sys
-import copy
+
 
 ### Information about the resources
 GOLD, FOOD, METAL, MANA, OIL, CRYSTAL, SUBDOLAK = range(7)
 
-resource_names = {
-    GOLD: 'Gold',
-    FOOD: 'Food',
-    METAL: 'Metal',
-    MANA: 'Mana',
-    OIL: 'Oil',
-    CRYSTAL: 'Crystal',
-    SUBDOLAK: 'Subdolak'
-}
+RESOURCE_NAMES = [
+    'Gold',
+    'Food',
+    'Metal',
+    'Mana',
+    'Oil',
+    'Crystal',
+    'Subdolak'
+]
 
 
 ### Mine class, which contains the internal state a resource node mine.
 class Mine:
+    MINE_BASE_INCOMES = [6, 1, 1, 5, 1, 1, 1]
     def __init__(self, type, const):
         """
         Initialize a new mine. Requires the type of mine and how many extra construction (const) yards are needed to reach it.
@@ -54,78 +55,39 @@ class Mine:
         self.type = type
         self.const = const
         self.upgrades = np.array([0, 0, 0, 0, 0, 0, 0]) # How many times the mine has been upgraded with each of the seven resource types.
-
-        self.base_income = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.float64) 
-        if self.type in {FOOD, METAL, OIL, CRYSTAL, SUBDOLAK}: # Most mines have a base income of +1 resource/round.
-            self.base_income[type] = 1
-        elif self.type == MANA: # Mana start at +5 mana/round.
-            self.base_income[type] = 5
-        elif self.type == GOLD: # Gold start at +6 mana/round.
-            self.base_income[type] = 6
-
+        self.base_income = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.float32) 
+        self.base_income[type] = Mine.MINE_BASE_INCOMES[type]
         self.income = self.base_income.copy() # Initialize with the mine's total income being its base income since it has no upgrades yet.
 
+
     def __str__(self):
-        return f"+{self.income[self.type]} {resource_names[self.type]} mine with {self.upgrades} upgrades"
+        return f"+{self.income[self.type]} {RESOURCE_NAMES[self.type]} mine with {self.upgrades} upgrades"
+
 
     # Functions related to upgrading a mine.
+    MINE_GOLD_UPGRADE_COSTS_MANA = {0: 10, 1: 16, 2: 23, 3: 31, 4: 31} # For mana mine
+    MINE_GOLD_UPGRADE_COSTS_DEFAULT = {0: 10, 1: 16, 2: 23, 3: 31} # For non-mana mines
+    MINE_SPECIAL_UPGRADE_COSTS = {FOOD: 7, METAL: 7, MANA: 18, OIL: 5, CRYSTAL: 5, SUBDOLAK: 5} 
+
     def upgrade_cost(self, upgrade_resource):
         """
-        Returns a numpy array of the cost of the specified upgrade. If the mine is maximally upgraded already, function returns False.
-        Each mine can be upgraded with gold 4 to 5 times, to provide +1 more resource, and then once with each secondary resource, to provide 20% more income. 
+        Returns the upgrade cost of a specified upgrade, or False if it can't be upgraded.
         """
         upgrade_level = self.upgrades[upgrade_resource]
-        if (upgrade_resource == GOLD): # We're trying to upgrade with gold
-            if self.type != MANA: # Mine isn't a mana, which has a different gold upgrade track. 4 upgrade levels possible.
-                if upgrade_level == 0:
-                    return np.array([10, 0, 0, 0, 0, 0, 0], dtype=np.float64) # Costs 10 gold for first upgrade. 
-                elif upgrade_level == 1:
-                    return np.array([16, 0, 0, 0, 0, 0, 0], dtype=np.float64) # Costs 16 gold for second upgrade, etc..
-                elif upgrade_level == 2:
-                    return np.array([23, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-                elif upgrade_level == 3:
-                    return np.array([31, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-                else:
-                    return False # Return False is its maximally upgraded.
-            else: # Mine is a mana so implement different upgrade track (it starts cheaper and can be upgraded 1 more time).
-                if upgrade_level == 0:
-                    return np.array([6, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-                elif upgrade_level == 1:
-                    return np.array([10, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-                elif upgrade_level == 2:
-                    return np.array([16, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-                elif upgrade_level == 3:
-                    return np.array([23, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-                elif upgrade_level == 4:
-                    return np.array([31, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-                else:
-                    return False 
-        elif (upgrade_resource == FOOD or upgrade_resource == METAL): # Upgrading with food or metal. These cost 7 resources.
-            if upgrade_level == 0: # If it's not upgraded yet...
-                upgrade = np.zeros([7], dtype=np.float64)
-                upgrade[upgrade_resource] = 7 # Return the cost.
-                return upgrade
-            else:
-                return False
-        elif (upgrade_resource == MANA): # Upgrading with mana. This cost 18 mana.
-            if upgrade_level == 0:
-                return np.array([0, 0, 0, 18, 0, 0, 0], dtype=np.float64) # Return the cost.
-            else:
-                return False
-        elif (upgrade_resource in {OIL, CRYSTAL, SUBDOLAK}): # Upgrading with oil, crystal, or subdolak. These cost 5 resources. 
-            if upgrade_level == 0:
-                upgrade = np.zeros([7], dtype=np.float64)
-                upgrade[upgrade_resource] = 5 # Return the cost.
-                return upgrade
-            else:
-                return False
 
+        if upgrade_resource == GOLD: # Gold upgrade
+            if self.type == MANA: # Mana mines
+                cost = Mine.MINE_GOLD_UPGRADE_COSTS_MANA.get(upgrade_level, False)
+            else: # Other mines
+                cost = Mine.MINE_GOLD_UPGRADE_COSTS_DEFAULT.get(upgrade_level, False)
+            return np.array([cost, 0, 0, 0, 0, 0, 0], dtype=np.float32) if cost else False
 
-    def update_total_income(self):
-        """
-        Updates the total income of the mine. Should be called after any upgrade.
-        """
-        self.income[self.type] = np.round((self.base_income[self.type] + self.upgrades[0]) * (1 + 0.2*np.sum(self.upgrades[1:])), 1) # Logic to calculate mine's total income given its resources. Gold upgrades (self.upgrade[0]) add one base income whereas all secondary resource (self.upgrades[1:]) upgrades increase yield by 20%. Rounds to 1 decimal point to fix floating point errors (all valid upgrades permutations will always result in most 1 decimal point).
+        if upgrade_level == 0:
+            upgrade = np.zeros([7], dtype=np.float32)
+            upgrade[upgrade_resource] = Mine.MINE_SPECIAL_UPGRADE_COSTS[upgrade_resource]
+            return upgrade
+
+        return False
 
 
     def upgrade_mine(self, upgrade_resource):
@@ -136,31 +98,38 @@ class Mine:
         self.upgrades[upgrade_resource] += 1 # Apply the upgrade.
         self.update_total_income() # Updates self.income with the new income with all existing upgrades.
         new_income = self.income 
-        return (new_income - previous_income) # Return the change income, which is used in GameState to keep track of total income.       
+        return self.income - previous_income # Return the change income, which is used in GameState to keep track of total income.       
 
 
     # Methods related to purchasing a mine.
+    MINE_PURCHASE_COSTS_NON_MAX = [
+        np.array([6, 0, 0, 0, 0, 0, 0], dtype = np.float32),
+        np.array([10, 0, 0, 0, 0, 0, 0], dtype = np.float32),
+        np.array([13, 0, 0, 0, 0, 0, 0], dtype = np.float32),
+        np.array([16, 0, 0, 0, 0, 0, 0], dtype = np.float32),
+        np.array([23, 0, 0, 0, 0, 0, 0], dtype = np.float32),
+        np.array([26, 0, 0, 0, 0, 0, 0], dtype = np.float32)
+    ]
+    MINE_PURCHASE_COSTS_MAX = np.array([31, 0, 0, 0, 0, 0, 0], dtype=np.float32)
+    MINE_PURCHASE_COSTS_FOOD = np.array([10, 0, 0, 0, 0, 0, 0], dtype=np.float32)
+
     def purchase_cost(self, num_mines):
         """
         Returns the cost to purchase a new mine.
         """
-        if self.type != FOOD: # Non-food mines get more expensive with each mine.
-            if num_mines == 0:
-                return np.array([6, 0, 0, 0, 0, 0, 0], dtype=np.float64) # First mine costs 6 gold.
-            elif num_mines == 1:
-                return np.array([10, 0, 0, 0, 0, 0, 0], dtype=np.float64) # First mine costs 10 gold, etc.
-            elif num_mines == 2:
-                return np.array([13, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-            elif num_mines == 3:
-                return np.array([16, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-            elif num_mines == 4:
-                return np.array([23, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-            elif num_mines == 5:
-                return np.array([26, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-            else:
-                return np.array([31, 0, 0, 0, 0, 0, 0], dtype=np.float64)
-        else: # Foods always cost 10.
-            return np.array([10, 0, 0, 0, 0, 0, 0], dtype=np.float64)
+        if self.type != FOOD:
+            # Use list indexing if num_mines is within the range, else default cost
+            return (Mine.MINE_PURCHASE_COSTS_NON_MAX[num_mines] if num_mines < 6 else Mine.MINE_PURCHASE_COSTS_MAX)
+        else:
+            return Mine.MINE_PURCHASE_COSTS_FOOD
+
+
+    # Updating income    
+    def update_total_income(self):
+        """
+        Updates the total income of the mine. Should be called after any upgrade.
+        """
+        self.income[self.type] = np.round((self.base_income[self.type] + self.upgrades[0]) * (1 + 0.2*np.sum(self.upgrades[1:])), 1) # Logic to calculate mine's total income given its resources. Gold upgrades (self.upgrade[0]) add one base income whereas all secondary resource (self.upgrades[1:]) upgrades increase yield by 20%. Rounds to 1 decimal point to fix floating point errors (all valid upgrades permutations will always result in most 1 decimal point).
 
 
 # Normally in Mines and Magic the distribution of mines is random each game. However here we define a list representing a static distribution of mines for testing/training. Down the road maybe generate random mines. Needs to be sorted by number of required construction yards.
@@ -210,8 +179,8 @@ class Send:
         Initialize a new second.
         Needs the name of the send, the cost, how much gold income it provides, and what round it becomes available.
         """
-        self.cost = np.array(cost, dtype=np.float64)
-        self.income = np.array([income, 0, 0, 0, 0, 0, 0], dtype=np.float64)
+        self.cost = np.array(cost, dtype=np.float32)
+        self.income = np.array([income, 0, 0, 0, 0, 0, 0], dtype=np.float32)
         self.name = name
         self.round = round
 
@@ -229,7 +198,7 @@ class Send:
     
 
 # List of possible sends. Needs to be sorted by round available.
-sends = [
+SENDS = [
     Send('Fat Ling', [0, 3, 0, 0, 0, 0, 0], 0.7, 1),
     Send('Acid Ling', [0, 0, 3, 0, 0, 0, 0], 0.6, 1),
     Send('Drone Ling', [0, 0, 0, 9, 0, 0, 0], 0.7, 1),
@@ -260,13 +229,13 @@ class GameState:
         """
         Instantiates a new GameState. Requires a list of Mine objects which represent the map.
         """
-        self.bank = np.array([60, 0, 0, 0, 0, 0, 0], dtype=np.float64) # Start with 60 gold.
-        self.income = np.array([16, 0, 0, 0, 0, 0, 0], dtype=np.float64) # Start with +16 gold income.
+        self.bank = np.array([60, 0, 0, 0, 0, 0, 0], dtype=np.float32) # Start with 60 gold.
+        self.income = np.array([16, 0, 0, 0, 0, 0, 0], dtype=np.float32) # Start with +16 gold income.
         self.round = 1 # Start on round 1.
         self.const = 1 # Start with 1 construction yard.
         self.owned_mines = [] # Start with no owned mines.
         self.num_mines = 0 # Start with no owned mines. 
-        self.unowned_mines = copy.deepcopy(map_mines) # Populate the unowned_mines with the map.
+        self.unowned_mines = map_mines # Populate the unowned_mines with the map.
         self.available_moves = [] # Make an empty list which contains the valid moves.
         self.update_available_actions() # Update the available moves based on the initialized game state.
         self.moves_performed = [] # Make an empty list of what moves have been performed.
@@ -290,8 +259,7 @@ class GameState:
         """
         Checks if something is affordable.
         """
-        result = self.bank - cost # What bank would be after buying whatever it is.
-        return np.all(result >= 0) # Returns True if no resource becomes negative, otherwise returns False.
+        return np.all((self.bank - cost) >= 0) # Returns True if no resource becomes negative, otherwise returns False.
 
 
     ### Mines
@@ -343,8 +311,7 @@ class GameState:
         Subtracts cost from bank, updates its internal state, and adds the difference from the previous income to income.
         """
         self.bank -= mine.upgrade_cost(resource) # Subtract the cost from the bank.
-        income_delta = mine.upgrade_mine(resource) # Upgrade the internal mine state and get how much the mine's income increased by.
-        self.income += income_delta # Add the delta of the mine's income to our total income.
+        self.income += mine.upgrade_mine(resource) # # Upgrade the internal mine state and add the delta of the mine's income to our total income.
         return f"--> Upgraded {mine}"
 
 
@@ -364,10 +331,10 @@ class GameState:
         TO DO: Keep track of sends, Mines and Magic caps how many you can send per turn.
         """
         available_sends = []
-        for send in sends: # "sends" is never modified and defined globally.
+        for send in SENDS: # "sends" is never modified and defined globally.
             if send.round > self.round: # If it's too early to access this send, break. Assumes sends is sorted by required round.
                 break
-            if self.affordable(send.purchase_cost()): # If we can afford the send.
+            if self.affordable(send.cost): # If we can afford the send.
                 available_sends.append((self.purchase_send, (send,))) # Add the purchase_send method and a tuple of the required args to a list.
         return available_sends
     
@@ -419,7 +386,7 @@ class GameState:
             if action[0] == self.purchase_mine:
                 action_string += f"{i}: Purchase {str(action[1][0])}{delimiter}"
             elif action[0] == self.upgrade_mine:
-                action_string += f"{i}: Upgrade with {resource_names[action[1][1]]}, {str(action[1][0])}{delimiter}"
+                action_string += f"{i}: Upgrade with {RESOURCE_NAMES[action[1][1]]}, {str(action[1][0])}{delimiter}"
             elif action[0] == self.purchase_send:
                 action_string += f"{i}: Purchase {str(action[1][0])}{delimiter}"
             elif action[0] == self.purchase_const:
